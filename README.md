@@ -94,13 +94,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- -- a. based on all the cause_of_death_unos 
--- SELECT * FROM dbo.get_procurement_efficiency();
+--a. based on all the cause_of_death_unos 
+-- SELECT * FROM dbo.get_procurement_efficiency();  
 
--- --b.based on any cause_of_death_unos
+--b.based on any cause_of_death_unos
 -- SELECT * FROM dbo.get_procurement_efficiency('Anoxia');
 
---c.Function to find the efficiency of each procured organ based on any causes of donors death ( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death) ?
+--c.Function to find the efficiency of each procured organ based on any causes of donors death 
+( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death) ?
 
 CREATE OR 
 REPLACE FUNCTION dbo.get_procurement_efficiency(f_value TEXT,f_column INTEGER) 
@@ -148,7 +149,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- --c.Based on any causes of donors death ( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death)
+--c.Based on any causes of donors death 
+( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death)
 -- SELECT * FROM dbo.get_procurement_efficiency('Asphyxiation', 1); -- 1 = mechanism_of_death
 
 ## Insights
