@@ -1,0 +1,178 @@
+--Each age group contribution to the procurement of each organ
+WITH organ_age_data AS (
+    SELECT
+        mv.organ,
+        dd.age_group
+    FROM dbo.mv_outcomes_long mv
+    INNER JOIN dbo.donor_demographics dd
+        ON mv.patientid = dd.patientid
+    WHERE dd.age_group IS NOT NULL
+      AND mv.status IS NOT NULL   -- counts procured organs
+)
+
+SELECT
+    organ AS organs_procured,
+    COUNT(*) FILTER (WHERE age_group = 'Infant')    AS "Infant",
+    COUNT(*) FILTER (WHERE age_group = 'Child')     AS "Child",
+    COUNT(*) FILTER (WHERE age_group = 'Teen')      AS "Teen",
+    COUNT(*) FILTER (WHERE age_group = 'Adult')     AS "Adult",
+    COUNT(*) FILTER (WHERE age_group = 'Senior')    AS "Senior",
+    COUNT(*) FILTER (WHERE age_group = 'Geriatric') AS "Geriatric"
+FROM organ_age_data
+GROUP BY organ;
+
+--Procurement contribution of each organ across all OPOs
+WITH opo_data AS (
+    SELECT
+        SPLIT_PART(patientid, '_', 1) AS opo, organ
+    FROM dbo.mv_outcomes_long
+    WHERE status IS NOT NULL
+)
+
+SELECT
+    COALESCE(organ, 'TOTAL') AS organs_procured,
+
+    COUNT(*) FILTER (WHERE opo = 'OPO1') AS "OPO 1",
+    COUNT(*) FILTER (WHERE opo = 'OPO2') AS "OPO 2",
+    COUNT(*) FILTER (WHERE opo = 'OPO3') AS "OPO 3",
+    COUNT(*) FILTER (WHERE opo = 'OPO4') AS "OPO 4",
+    COUNT(*) FILTER (WHERE opo = 'OPO5') AS "OPO 5",
+    COUNT(*) FILTER (WHERE opo = 'OPO6') AS "OPO 6"
+
+FROM opo_data
+GROUP BY GROUPING SETS ((organ), ())
+ORDER BY 
+    CASE WHEN organ IS NULL THEN 1 ELSE 0 END,
+    organ;
+	
+--Distribution of age buckets and their corresponding procurement rates
+WITH age_bucketed AS (
+    SELECT
+        WIDTH_BUCKET(dd.age, 0, 100, 10) AS bucket_no,
+        CONCAT((WIDTH_BUCKET(dd.age, 0, 100, 10) - 1) * 10,'-',
+        WIDTH_BUCKET(dd.age, 0, 100, 10) * 10 - 1) AS age_bucket,
+        dd.patientid
+    FROM dbo.donor_demographics dd
+    WHERE dd.age IS NOT NULL
+),
+
+donor_organ_counts AS (
+    SELECT
+        ab.bucket_no,
+        ab.age_bucket,
+        ab.patientid,
+        COUNT(mv.organ) AS organs_recovered
+    FROM age_bucketed ab
+    LEFT JOIN dbo.mv_outcomes_long mv ON ab.patientid = mv.patientid
+        AND mv.status IS NOT NULL   
+    GROUP BY ab.bucket_no, ab.age_bucket, ab.patientid
+)
+
+SELECT
+    age_bucket,
+
+    COUNT(*) AS total_referrals,
+
+    SUM(organs_recovered) AS total_organs_recovered,
+
+    ROUND(AVG(organs_recovered), 2) AS avg_organs_per_donor,
+
+    ROUND(100.0 * COUNT(*) FILTER (WHERE organs_recovered > 1)/ COUNT(*),2) 
+	AS multi_organ_donor_percent
+
+FROM donor_organ_counts
+GROUP BY bucket_no, age_bucket
+ORDER BY bucket_no;
+
+--Impact of BMI on organ procurement rates
+WITH base AS (
+    SELECT
+        age_group,
+        ROUND(weight / NULLIF(POWER(height * 0.0254, 2), 0), 2) AS bmi,
+        (procured_year IS NOT NULL)::int AS is_procured
+    FROM dbo.donor_demographics
+    WHERE weight IS NOT NULL AND height IS NOT NULL
+      AND weight <= 300 AND height <= 90
+),
+classified AS (
+    SELECT
+        age_group,
+        CASE
+            WHEN bmi < 18.5 THEN 'Underweight'
+            WHEN bmi < 25.0 THEN 'Normal'
+            WHEN bmi < 30.0 THEN 'Overweight'
+            ELSE 'Obese'
+        END AS bmi_category,
+        is_procured
+    FROM base
+)
+SELECT
+    age_group,
+
+    ROUND(100.0 * SUM(is_procured) FILTER (WHERE bmi_category = 'Underweight') 
+        / NULLIF(COUNT(*) FILTER (WHERE bmi_category = 'Underweight'), 0), 2)
+    || ' %' AS Underweight_procurement_high_risk,
+
+	ROUND(100.0 * SUM(is_procured) FILTER (WHERE bmi_category = 'Normal') 
+        / NULLIF(COUNT(*) FILTER (WHERE bmi_category = 'Normal'), 0), 2)
+    || ' %' AS normal_procurement_low_risk,
+
+    ROUND(100.0 * SUM(is_procured) FILTER (WHERE bmi_category = 'Overweight') 
+        / NULLIF(COUNT(*) FILTER (WHERE bmi_category = 'Overweight'), 0), 2)
+    || ' %' AS overweight_procurement_moderate_risk,
+
+    ROUND(100.0 * SUM(is_procured) FILTER (WHERE bmi_category = 'Obese') 
+        / NULLIF(COUNT(*) FILTER (WHERE bmi_category = 'Obese'), 0), 2)
+    || ' %' AS obese_procurement_high_risk
+
+FROM classified
+GROUP BY age_group
+ORDER BY age_group;
+
+--Organs that are transplanted across BMI of adults and the total number of organs per BMI
+WITH bmi_category AS (
+    SELECT
+        d.patientid,
+        CASE
+            WHEN ROUND(d.weight / NULLIF(POWER(d.height * 0.0254, 2), 0), 2) < 18.5 
+			THEN 'Underweight'
+            WHEN ROUND(d.weight / NULLIF(POWER(d.height * 0.0254, 2), 0), 2) BETWEEN 18.5 AND 24.9 
+			THEN 'Normal'
+            WHEN ROUND(d.weight / NULLIF(POWER(d.height * 0.0254, 2), 0), 2) BETWEEN 25 AND 29.9 
+			THEN 'Overweight'
+            ELSE 'Obese'
+        END AS bmi_category
+    FROM dbo.donor_demographics d
+    WHERE d.age BETWEEN 19 AND 55
+),
+bmi_counts AS (
+    SELECT
+        b.bmi_category,
+
+        COUNT(*) FILTER (WHERE mv.organ = 'heart'        AND mv.status ILIKE 'Transplanted') 
+		AS hearts_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'liver'        AND mv.status ILIKE 'Transplanted') 
+		AS livers_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'left_kidney'  AND mv.status ILIKE 'Transplanted') 
+		AS left_kidneys_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'right_kidney' AND mv.status ILIKE 'Transplanted') 
+		AS right_kidneys_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'left_lung'    AND mv.status ILIKE 'Transplanted') 
+		AS left_lungs_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'right_lung'   AND mv.status ILIKE 'Transplanted') 
+		AS right_lungs_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'intestine'    AND mv.status ILIKE 'Transplanted') 
+		AS intestines_transplanted,
+        COUNT(*) FILTER (WHERE mv.organ = 'pancreas'     AND mv.status ILIKE 'Transplanted') 
+		AS pancreas_transplanted,
+
+        COUNT(*) FILTER (WHERE mv.status ILIKE 'Transplanted') AS total_transplanted_per_category
+
+    FROM bmi_category b
+    INNER JOIN dbo.mv_outcomes_long mv ON b.patientid = mv.patientid
+    GROUP BY b.bmi_category
+)
+
+SELECT *
+FROM bmi_counts
+ORDER BY total_transplanted_per_category DESC;
