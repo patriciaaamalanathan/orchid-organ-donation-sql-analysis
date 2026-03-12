@@ -16,9 +16,9 @@ The dataset includes:
 
 ## Tools Used
 
-PostgreSQL
-SQL
-Database Modeling
+-PostgreSQL
+-SQL
+-Database Modeling
 
 ## Database Design
 
