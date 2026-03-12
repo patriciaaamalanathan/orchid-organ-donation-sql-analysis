@@ -1,0 +1,23 @@
+--Organ procurement outcomes standardized into a longitudinal format to enable consistent, high-performance analysis of transplant success, recovery, and research utilization across all organs
+DROP MATERIALIZED VIEW IF EXISTS dbo.mv_outcomes_long;
+
+CREATE MATERIALIZED VIEW dbo.mv_outcomes_long AS
+SELECT
+    o.patientid,
+    v.organ,
+    v.status
+FROM dbo.outcomes o
+
+CROSS JOIN LATERAL (
+    VALUES
+        ('heart',        o.heart),
+        ('liver',        o.liver),
+        ('left_kidney',  o.left_kidney),
+        ('right_kidney', o.right_kidney),
+        ('left_lung',    o.left_lung),
+        ('right_lung',   o.right_lung),
+        ('intestine',    o.intestine),
+        ('pancreas',     o.pancreas)
+) AS v(organ, status);
+
+-- select * from dbo.mv_outcomes_long;
