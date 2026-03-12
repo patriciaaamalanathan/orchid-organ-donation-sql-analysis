@@ -51,11 +51,12 @@ Relationships were implemented using primary keys and foreign key constraints to
 
 ## Example Query
 
---Function Overloading to find the efficiency of each procured organ based on conditions: all/any the cause_of_death_unos or any causes of donors death ( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death) ?
+--Function Overloading to find the efficiency of each procured organ based on conditions: all/any the cause_of_death_unos or any causes of donors death (i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death)
 
 --Function to find the efficiency of each procured organ based on all/any cause_of_death_unos
 
 CREATE OR REPLACE FUNCTION dbo.get_procurement_efficiency(cod_filter text DEFAULT NULL)
+
 RETURNS TABLE(
     cause_of_death_unos text,
     hearts_efficiency numeric,
@@ -67,7 +68,9 @@ RETURNS TABLE(
     pancreas_efficiency numeric,
     intestines_efficiency numeric
 ) AS $$
+
 BEGIN
+
     RETURN QUERY
     SELECT
         pc.cause_of_death_unos,
@@ -84,6 +87,7 @@ BEGIN
     WHERE cod_filter IS NULL OR pc.cause_of_death_unos = cod_filter
     GROUP BY pc.cause_of_death_unos
     ORDER BY pc.cause_of_death_unos; 
+
 END;
 $$ LANGUAGE plpgsql;
 
@@ -94,6 +98,7 @@ $$ LANGUAGE plpgsql;
 -- SELECT * FROM dbo.get_procurement_efficiency('Anoxia');
 
 --c.Function to find the efficiency of each procured organ based on any causes of donors death ( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death) ?
+
 CREATE OR REPLACE FUNCTION dbo.get_procurement_efficiency(f_value TEXT,f_column INTEGER) 
 RETURNS TABLE(
     filter_value TEXT,
