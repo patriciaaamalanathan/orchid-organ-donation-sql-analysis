@@ -1,0 +1,34 @@
+--Procurement status rate (i.e. Transplanted, Recovered for Research or Recovered but Not Transplanted) of any organ categorized by the cause of death
+
+CREATE OR REPLACE FUNCTION dbo.procured_percent_by_cod(
+    f_organ TEXT,
+    f_status TEXT
+)
+RETURNS TABLE (
+    cause_of_death TEXT,
+    total_procurements BIGINT,
+    procurement_rate NUMERIC(5,2)
+) AS $$
+BEGIN
+    RETURN QUERY EXECUTE format(
+        $f$
+        SELECT 
+            pc.cause_of_death_unos AS cause_of_death,
+            COUNT(*) AS total_procurements,
+            ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS procurement_rate
+        FROM dbo.patient_cod pc
+        left join dbo.outcomes o ON pc.patientid = o.patientid
+        WHERE pc.cause_of_death_unos IS NOT NULL
+          AND %I = %L
+        GROUP BY pc.cause_of_death_unos
+        ORDER BY total_procurements DESC
+        $f$,
+        f_organ,
+        f_status
+    );
+END;
+$$ LANGUAGE plpgsql;
+-- -- Execute below statements to check:
+-- SELECT * FROM dbo.procured_percent_by_cod('heart','Transplanted');
+-- SELECT * FROM dbo.procured_percent_by_cod('intestine','Recovered for Transplant but not Transplanted');
+-- SELECT * FROM dbo.procured_percent_by_cod('pancreas','Recovered for Research');
