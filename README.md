@@ -55,7 +55,8 @@ Relationships were implemented using primary keys and foreign key constraints to
 
 --Function to find the efficiency of each procured organ based on all/any cause_of_death_unos
 
-CREATE OR REPLACE FUNCTION dbo.get_procurement_efficiency(cod_filter text DEFAULT NULL)
+CREATE OR 
+REPLACE FUNCTION dbo.get_procurement_efficiency(cod_filter text DEFAULT NULL)
 
 RETURNS TABLE(
 
@@ -101,7 +102,8 @@ $$ LANGUAGE plpgsql;
 
 --c.Function to find the efficiency of each procured organ based on any causes of donors death ( i.e. mechanism_of_death, cause_of_death_opo, cause_of_death_unos, circumstance_of_death) ?
 
-CREATE OR REPLACE FUNCTION dbo.get_procurement_efficiency(f_value TEXT,f_column INTEGER) 
+CREATE OR 
+REPLACE FUNCTION dbo.get_procurement_efficiency(f_value TEXT,f_column INTEGER) 
 
 RETURNS TABLE(
 
