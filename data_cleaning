@@ -1,0 +1,290 @@
+-- To validate the number of records present in the backup files as mentioned in physionet
+SELECT opo,count(*) FROM public.referrals
+group by opo order by opo
+
+-- Create a Schema for Stage1 to keep the better versions of these table data
+
+CREATE SCHEMA IF NOT EXISTS staging;
+DROP TABLE IF EXISTS  staging.orchids;
+SELECT * INTO staging.orchids FROM public.referrals;
+
+
+-- Standardize the cause ofdeath given by OPO, UNOS along with mechanism and circumstance of death
+-- To fix leading/trailing spaces, Empty Strings, Multi spaces
+
+UPDATE staging.orchids 
+SET
+  cause_of_death_opo   = NULLIF(TRIM(REGEXP_REPLACE(cause_of_death_opo, '\s+', ' ', 'g')), ''),
+  cause_of_death_unos  = NULLIF(TRIM(REGEXP_REPLACE(cause_of_death_unos, '\s+', ' ', 'g')), ''),
+  mechanism_of_death  = NULLIF(TRIM(REGEXP_REPLACE(mechanism_of_death, '\s+', ' ', 'g')), ''),
+  circumstances_of_death = NULLIF(TRIM(REGEXP_REPLACE(circumstances_of_death, '\s+', ' ', 'g')), '');
+
+DROP TABLE if exists staging.cod_mapping;
+create table if not exists staging.cod_mapping (
+	source_column VARCHAR(50),
+    raw_value      VARCHAR(255),
+    standard_value VARCHAR(255));
+
+INSERT INTO staging.cod_mapping VALUES
+-- OPOs / Primary Medical Cause / Clinical
+('cause_of_death_opo','An - asphyixiation','An - Asphyxiation'),
+('cause_of_death_opo','An -  hanging','An - Hanging'),
+('cause_of_death_opo','CVA/Stroke - Cerebro Accident','Cerebrovascular / Stroke'),
+('cause_of_death_opo','PE--Pulmonary Embolism','PE - Pulmonary Embolism'),
+('cause_of_death_opo','Pulmonary embolism','PE - Pulmonary Embolism'),
+('cause_of_death_opo','MultiSystem Failure','Multi-system failure'),
+('cause_of_death_opo','RES - lung disease','RES - Lung Disease'),
+('cause_of_death_opo','RES - other','RES - Other'),
+('cause_of_death_opo','AAA or thoracic AA','AAA / Thoracic Aneurysm'),
+('cause_of_death_opo','CAR - probable MI','Cardiac - Probable MI'),
+('cause_of_death_opo','GSW','Gunshot Wound'),
+('cause_of_death_opo','GI - bleed','GI - Bleed'),
+('cause_of_death_opo', 'ICB / ICH', 'Intracranial Hemorrhage / Stroke'),
+('cause_of_death_opo', 'Intracranial Hemorrhage', 'Intracranial Hemorrhage / Stroke'),
+('cause_of_death_opo', '[null]', NULL),
+('cause_of_death_opo', 'null',   NULL),
+('cause_of_death_opo', 'N/A',    NULL),
+('cause_of_death_opo', '',       NULL),
+-- UNOs / Used at the time of Death Registry
+('cause_of_death_unos','CVA/Stroke','Cerebrovascular / Stroke'),
+('cause_of_death_unos','ICH/Stroke','Intracranial Hemorrhage / Stroke'),
+('cause_of_death_unos','ICB / ICH','Intracranial Hemorrhage / Stroke'),
+('cause_of_death_unos', '[null]', NULL),
+('cause_of_death_unos', 'null',   NULL),
+('cause_of_death_unos', 'N/A',    NULL),
+('cause_of_death_unos', '',       NULL),
+--Mechanism /  How death Occured/ Used by Medical/Forensic
+('mechanism_of_death','Gun Shot Wound','Gunshot Wound'),
+('mechanism_of_death','Drug Intoxication','Drug / Intoxication'),
+('mechanism_of_death','None of the above','None of the Above'),
+('mechanism_of_death', '[null]', NULL),
+('mechanism_of_death', 'null',   NULL),
+-- Circumstances/ context or legal/ Used Legally or Forensic
+('circumstances_of_death','MVA','Motor Vehicle Accident'),
+('circumstances_of_death','Accident, Non-MVA','Non-Motor Vehicle Accident'),
+('circumstances_of_death','Death from Natural Causes','Natural Causes'),
+('circumstances_of_death', '[null]', NULL),
+('circumstances_of_death', 'null',   NULL);
+--To update all four columns based on the new mapping details
+CREATE OR REPLACE PROCEDURE staging.apply_cod_mapping()
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    rec RECORD;
+    sql_stmt TEXT;
+BEGIN
+    FOR rec IN
+        SELECT DISTINCT source_column
+        FROM staging.cod_mapping
+    LOOP
+
+        sql_stmt := format($f$
+            UPDATE staging.orchids s
+            SET %I = m.standard_value
+            FROM staging.cod_mapping m
+            WHERE m.source_column = %L
+              AND s.%I IS NOT DISTINCT FROM m.raw_value
+        $f$,
+        rec.source_column,
+        rec.source_column,
+        rec.source_column
+        );
+
+        EXECUTE sql_stmt;
+
+    END LOOP;
+END;
+$$;
+CALL staging.apply_cod_mapping();
+-- Change the data type for time related columns
+ALTER TABLE staging.orchids 
+  ALTER COLUMN time_referred TYPE TIMESTAMP USING time_referred::TIMESTAMP,
+  ALTER COLUMN time_approached TYPE TIMESTAMP USING time_approached::TIMESTAMP,
+  ALTER COLUMN time_authorized TYPE TIMESTAMP USING time_authorized::TIMESTAMP,
+  ALTER COLUMN time_procured TYPE TIMESTAMP USING time_procured::TIMESTAMP,
+  ALTER COLUMN time_asystole TYPE TIMESTAMP USING time_asystole::TIMESTAMP,
+  ALTER COLUMN time_brain_death TYPE TIMESTAMP USING time_brain_death::TIMESTAMP;
+
+-- Fixing Bad Data
+-- Updating it with a shifted date
+UPDATE staging.orchids
+SET time_procured = time_procured - INTERVAL '1 day'
+WHERE patientid='OPO4_P145446';
+
+--- update procured year to null based on time_procured
+
+select procured_year,procured,tissue_referral,eye_referral from staging.orchids
+WHERE time_procured is null and procured_year is not null; --41 records
+
+UPDATE staging.orchids
+SET procured_year =null
+WHERE procured is false and procured_year is not NULL;
+
+update staging.orchids
+set procured = true where outcome_heart  is not null or outcome_liver is not null or
+outcome_kidney_left is not null or outcome_kidney_right is not null or outcome_lung_left is not null or
+outcome_lung_right is not null or outcome_intestine is not null or outcome_pancreas is not null;
+
+update staging.orchids 
+SET  approached = CASE WHEN transplanted= true or procured=true or authorized=true 
+						THEN true else approached END,
+	authorized = CASE WHEN transplanted= true or procured=true
+					THEN true else authorized END,
+	procured = CASE WHEN transplanted= true THEN true else procured END
+where transplanted= true or procured=true or authorized=true;
+
+update staging.orchids set 
+heightin = CASE
+      WHEN age < 2  AND heightin BETWEEN 16 AND 42 THEN heightin
+      WHEN age BETWEEN 2 AND 5 AND heightin BETWEEN 28 AND 48 THEN heightin
+      WHEN age BETWEEN 6 AND 12 AND heightin BETWEEN 36 AND 65 THEN heightin
+      WHEN age BETWEEN 13 AND 17 AND heightin BETWEEN 45 AND 80 THEN heightin
+      WHEN age BETWEEN 18 AND 64 AND heightin BETWEEN 50 AND 88 THEN heightin
+      WHEN age >= 65 AND heightin BETWEEN 48 AND 85 THEN heightin
+      ELSE NULL
+    END , weightkg =CASE  WHEN age < 2  AND weightkg BETWEEN 1.5 AND 25 THEN weightkg
+      WHEN age BETWEEN 2 AND 5 AND weightkg BETWEEN 7 AND 30 THEN weightkg
+      WHEN age BETWEEN 6 AND 12 AND weightkg BETWEEN 15 AND 70 THEN weightkg
+      WHEN age BETWEEN 13 AND 17 AND weightkg BETWEEN 25 AND 120 THEN weightkg
+      WHEN age BETWEEN 18 AND 64 AND weightkg BETWEEN 30 AND 300 THEN weightkg
+      WHEN age >= 65 AND weightkg BETWEEN 28 AND 250 THEN weightkg
+      ELSE NULL END;
+
+-- CREATE Final tables.
+CREATE SCHEMA IF NOT EXISTS dbo;
+DROP TABLE IF EXISTS dbo.opo_hospital;
+Create table IF NOT EXISTS dbo.opo_hospital as
+( select opo, hospitalid, count(patientid) as donors_count from staging.orchids
+group by opo,hospitalid order by opo);
+ALTER TABLE dbo.opo_hospital
+ADD CONSTRAINT opo_hospital_pkey PRIMARY KEY (hospitalid);
+
+DROP TABLE  IF EXISTS dbo.donor_demographics;
+CREATE TABLE IF NOT EXISTS  dbo.donor_demographics as
+(SELECT patientid,
+age,
+gender, 
+race,
+hospitalid,
+concat(abo_bloodtype,' ',case when initcap(trim(abo_rh))='Positive' then '+' 
+										when initcap(trim(abo_rh))='Negative' then '-' else NULL END
+			  ) as bloodgroup ,
+heightin as height,
+weightkg as weight,referral_dayofweek,
+referral_year,
+case WHEN tissue_referral is true then 1 
+WHEN tissue_referral is false then 0 END as tissue_referral,
+case when eye_referral  is true then 1 
+WHEN eye_referral is false then 0 END as eye_referral,
+procured_year,
+time_asystole,
+time_brain_death,
+COALESCE(time_asystole, time_brain_death) as time_of_death
+from staging.orchids);
+
+ALTER TABLE dbo.donor_demographics
+ADD CONSTRAINT pk_donor_demographics
+PRIMARY KEY (patientid),
+ADD CONSTRAINT "fk_donor_demographics" FOREIGN KEY (hospitalid)
+        REFERENCES dbo.opo_hospital (hospitalid) MATCH FULL
+        ON UPDATE NO ACTION
+        ON DELETE NO ACTION
+        NOT VALID;
+
+DROP TABLE IF EXISTS dbo.organ_proc_stage;
+CREATE TABLE IF NOT EXISTS dbo.organ_proc_stage as
+(SELECT patientid
+,CASE WHEN transplanted is True then 1 
+	WHEN transplanted IS False THEN 0 end as transplanted
+, CASE WHEN procured  is True then 1 
+	WHEN procured  is False then 0 end as procured
+, CASE WHEN authorized  is True then 1 
+WHEN authorized  is False then 0 end as authorized
+, CASE when approached  is True then 1 
+when approached  is False then 0 end as approached
+,CASE WHEN transplanted IS TRUE THEN 'transplanted'
+    WHEN procured IS TRUE THEN 'procured'
+    WHEN authorized IS TRUE THEN 'authorized'
+    WHEN approached IS TRUE THEN 'approached'
+    ELSE NULL END as procurement_stage
+,time_referred
+,time_approached
+,time_authorized
+,time_procured
+from staging.orchids where COALESCE(approached, FALSE)
+ OR COALESCE(authorized, FALSE)
+ OR COALESCE(procured, FALSE)
+ OR COALESCE(transplanted, FALSE)
+order by patientid);
+
+ALTER TABLE dbo.organ_proc_stage
+ADD CONSTRAINT pk_organ_proc_stage PRIMARY KEY (patientid),
+ADD CONSTRAINT fk_organ_proc_stage FOREIGN KEY (patientid)
+REFERENCES dbo.donor_demographics (patientid) MATCH FULL
+ON UPDATE NO ACTION
+ON DELETE CASCADE;
+
+DROP TABLE  IF EXISTS dbo.patient_cod;
+Create table IF NOT exists dbo.patient_cod as
+(SELECT
+    patientid,
+    CASE
+        WHEN brain_death IS TRUE THEN 1
+        WHEN brain_death IS FALSE THEN 0
+    END AS brain_death_f,
+	cause_of_death_opo,
+    cause_of_death_unos,
+    mechanism_of_death,
+    circumstances_of_death
+FROM staging.orchids where brain_death is True
+   OR ( cause_of_death_opo IS NOT NULL
+     OR cause_of_death_unos IS NOT NULL
+     OR mechanism_of_death IS NOT NULL
+     OR circumstances_of_death IS NOT NULL)
+	 order by patientid);
+ALTER TABLE dbo.patient_cod
+ADD CONSTRAINT pk_patient_cod PRIMARY KEY (patientid),
+ADD CONSTRAINT fk_patient_cod FOREIGN KEY (patientid)
+REFERENCES dbo.donor_demographics (patientid) MATCH FULL
+ON UPDATE NO ACTION
+ON DELETE CASCADE;
+
+CREATE TABLE IF NOT EXISTS dbo.procured_status 
+( statusid int PRIMARY KEY,
+status varchar(50));
+
+INSERT INTO dbo.procured_status
+values (1, 'Recovered for Research'),(2,'Recovered for Transplant but not Transplanted'),(3,'Transplanted');
+
+DROP TABLE IF EXISTS dbo.outcomes;
+CREATE TABLE IF NOT EXISTS dbo.outcomes AS
+(SELECT
+    patientid,
+    outcome_heart as heart,
+    outcome_liver AS liver,
+    outcome_kidney_left as left_kidney,
+    outcome_kidney_right as right_kidney,
+    outcome_lung_right as right_lung,
+    outcome_lung_left as left_lung,
+    outcome_intestine as intestine,
+    outcome_pancreas as pancreas
+FROM staging.orchids
+WHERE
+    COALESCE(
+        outcome_heart,
+        outcome_liver,
+        outcome_kidney_left,
+        outcome_kidney_right,
+        outcome_lung_right,
+        outcome_lung_left,
+        outcome_intestine,
+        outcome_pancreas
+    ) IS NOT NULL order by patientid
+);
+
+ALTER TABLE dbo.outcomes
+ADD CONSTRAINT pk_outcomes PRIMARY KEY (patientid),
+ADD CONSTRAINT fk_outcomes FOREIGN KEY (patientid)
+REFERENCES dbo.donor_demographics (patientid) MATCH FULL
+ON UPDATE NO ACTION
+ON DELETE CASCADE;
