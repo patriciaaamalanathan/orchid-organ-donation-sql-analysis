@@ -1,0 +1,56 @@
+--Authorization rate across different racial groups?
+SELECT dd.race,
+	SUM(ops.approached) AS approached_patients,
+	SUM(ops.authorized) AS authorized_patients,
+    ROUND(
+    SUM(ops.authorized)::numeric
+    / NULLIF(SUM(ops.approached),0) * 100,
+    2) || '%' AS authorization_rate
+FROM dbo.donor_demographics dd
+LEFT JOIN dbo.organ_proc_stage ops
+  ON ops.patientid = dd.patientid
+WHERE dd.race IS NOT NULL
+GROUP BY dd.race;
+
+--Authorization rate for brain death versus non-brain death cases?
+SELECT CASE  WHEN pc.brain_death_f = 1 THEN 'Brain Death'
+        ELSE 'Non-Brain Death' END AS brain_death_group,
+	sum(approached) as approached_patients,
+ 	sum(authorized) as authorized_patients,
+	ROUND(
+    SUM(ops.authorized)::numeric
+    / NULLIF(SUM(ops.approached),0) * 100,
+    2) || '%' as authorization_rate
+FROM dbo.patient_cod pc
+LEFT JOIN dbo.organ_proc_stage ops
+  ON ops.patientid = pc.patientid
+GROUP BY brain_death_group;
+
+--Sum of referrals were approached, authorized, procured and transplanted for each OPO
+SELECT split_part(ops.patientid, '_', 1) as opo,
+   sum(ops.approached) AS approached_count, 
+    sum(ops.authorized) AS authorized_count,
+	sum(procured) AS procured_count,
+ 	sum(transplanted) AS transplanted_count
+FROM dbo.organ_proc_stage ops
+GROUP BY opo;
+
+--Total number of organs procured for transplant, but not transplanted and recovered for research
+SELECT
+COUNT(*) FILTER (WHERE status = 'Transplanted')
+AS total_organs_transplanted,
+COUNT(*) FILTER (WHERE status = 'Recovered for Transplant but not Transplanted')
+AS total_organs_recovered_not_transplanted,
+COUNT(*) FILTER (WHERE status = 'Recovered for Research')
+AS total_organs_recovered_for_research
+FROM dbo.mv_outcomes_long;
+
+--Authorization rate for each OPO?
+select split_part(ops.patientid, '_', 1) as opo,
+	sum(ops.approached) as approached_patients,
+	sum(ops.authorized) as authorized_patients,
+	round(SUM(ops.authorized)::numeric
+    / NULLIF(SUM(ops.approached),0) * 100,
+    2) || '%' as authorization_rate
+from dbo.organ_proc_stage ops
+group by opo;
