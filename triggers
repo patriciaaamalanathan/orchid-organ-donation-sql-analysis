@@ -1,0 +1,34 @@
+--Update the procurement status whenever the organs status is updated using trigger functions
+CREATE OR REPLACE FUNCTION dbo.trg_procurement_all_organs_fn()
+RETURNS trigger AS $$
+BEGIN
+    
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.heart IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.liver IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.left_kidney IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.right_kidney IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.left_lung IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.right_lung IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.pancreas IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+           OR NEW.intestine IN ('Transplanted', 'Recovered for Transplant but not Transplanted', 'Recovered for Research')
+        THEN
+            UPDATE dbo.organ_proc_stage
+            SET procured = 1,
+                time_procured = CURRENT_TIMESTAMP
+            WHERE patientid = NEW.patientid;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_procurement_all_organs1 ON dbo.outcomes;
+CREATE TRIGGER trg_procurement_all_organs1
+AFTER UPDATE ON dbo.outcomes
+FOR EACH ROW
+EXECUTE FUNCTION dbo.trg_procurement_all_organs_fn();
+
+--UPDATE dbo.outcomes SET heart = 'Transplanted' WHERE patientid = 'OPO1_P100082';
+--SELECT * FROM dbo.organ_proc_stage WHERE patientid = 'OPO1_P100082';
