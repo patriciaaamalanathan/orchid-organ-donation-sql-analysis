@@ -1,0 +1,65 @@
+--Organs that were recovered for transplant but not transplanted, categorized by cause of donor death
+SELECT
+	CASE when brain_death_f=1 then 'Brain Death' else coalesce(pc.cause_of_death_unos,pc.cause_of_death_opo) END AS cause_of_death,
+	COUNT(pc.patientid) AS total_referrals,
+	COUNT(*) FILTER (WHERE mv.status = 'Recovered for Transplant but not Transplanted')
+	AS total_organs_recovered_not_transplanted
+FROM dbo.patient_cod pc
+LEFT JOIN dbo.mv_outcomes_long mv ON pc.patientid = mv.patientid
+WHERE pc.cause_of_death_opo IS NOT NULL
+GROUP BY cause_of_death
+ORDER BY total_organs_recovered_not_transplanted DESC;
+
+--Contribution of each age group to organ procurement
+SELECT
+age_group,
+COUNT(*) AS total_referrals,
+SUM(CASE WHEN procured_year IS NOT NULL THEN 1 ELSE 0 END) AS total_procurements,
+TRUNC(100.0 * SUM(CASE WHEN procured_year IS NOT NULL THEN 1 ELSE 0 END)/ COUNT(*))
+|| ' %' AS procurement_rate_within_age_group,
+TRUNC(100.0 * SUM(CASE WHEN procured_year IS NOT NULL THEN 1 ELSE 0 END)
+/ SUM(SUM(CASE WHEN procured_year IS NOT NULL THEN 1 ELSE 0 END)) OVER ())
+|| ' %' AS procurement_contribution
+FROM dbo.donor_demographics dd
+LEFT JOIN dbo.outcomes o ON dd.patientid = o.patientid
+WHERE dd.age IS NOT NULL
+GROUP BY age_group
+ORDER BY total_procurements DESC;
+
+--Authorization rate for brain death versus non-brain death cases
+SELECT CASE  WHEN pc.brain_death_f = 1 THEN 'Brain Death'
+        ELSE 'Non-Brain Death' END AS brain_death_group,
+	sum(approached) as approached_patients,
+ 	sum(authorized) as authorized_patients,
+	ROUND(
+    SUM(ops.authorized)::numeric
+    / NULLIF(SUM(ops.approached),0) * 100,
+    2) || '%' as authorization_rate
+FROM dbo.patient_cod pc
+LEFT JOIN dbo.organ_proc_stage ops
+  ON ops.patientid = pc.patientid
+GROUP BY brain_death_group;
+
+--Age group with the highest authorization rate
+SELECT dd.age_group,SUM(ops.approached) as approached_patients,
+		SUM(ops.authorized) as authorized_patients,
+		Round(SUM(ops.authorized)::numeric/NULLIF(SUM(ops.approached),0) *100,2)||'%'  AS authorization_rate
+FROM dbo.donor_demographics dd
+LEFT JOIN dbo.organ_proc_stage ops
+  ON ops.patientid = dd.patientid
+WHERE dd.age_group IS NOT NULL
+GROUP BY dd.age_group
+ORDER BY authorization_rate DESC;
+
+--Gender-wise referral distribution and how many cases reached each stage (approached, authorized, procured, transplanted)
+SELECT dd.gender,
+    COUNT(dd.patientid) AS total_referrals,
+	sum(ops.approached) AS approached_count,
+	sum(ops.authorized) AS authorized_count,
+    sum(ops.procured) AS procured_count,
+	sum(ops.transplanted) AS transplanted_count
+FROM dbo.donor_demographics dd
+LEFT JOIN dbo.organ_proc_stage ops
+  ON ops.patientid = dd.patientid
+WHERE dd.gender IS NOT NULL
+GROUP BY dd.gender;
