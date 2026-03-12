@@ -71,36 +71,19 @@ BEGIN
     RETURN QUERY
     SELECT
         pc.cause_of_death_unos,
-        
-        ROUND(100.0 * SUM((o.heart IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) 
-		AS hearts_efficiency,
-        
-        ROUND(100.0 * SUM((o.liver IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2)
-        AS livers_efficiency,
-        
-        ROUND(100.0 * SUM((o.left_kidney IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) 
-		AS left_kidneys_efficiency,
-        
-        ROUND(100.0 * SUM((o.right_kidney IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2)
-        AS right_kidneys_efficiency,
-        
-        ROUND(100.0 * SUM((o.left_lung IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2)
-        AS left_lungs_efficiency,
-        
-        ROUND(100.0 * SUM((o.right_lung IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2)
-        AS right_lungs_efficiency,
-        
-        ROUND(100.0 * SUM((o.pancreas IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2)
-        AS pancreas_efficiency,
-        
-        ROUND(100.0 * SUM((o.intestine IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2)
-        AS intestines_efficiency
-        
+        ROUND(100.0 * SUM((o.heart IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS hearts_efficiency,
+        ROUND(100.0 * SUM((o.liver IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS livers_efficiency,
+        ROUND(100.0 * SUM((o.left_kidney IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS left_kidneys_efficiency,
+        ROUND(100.0 * SUM((o.right_kidney IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS right_kidneys_efficiency,
+        ROUND(100.0 * SUM((o.left_lung IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS left_lungs_efficiency,
+        ROUND(100.0 * SUM((o.right_lung IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS right_lungs_efficiency,
+        ROUND(100.0 * SUM((o.pancreas IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS pancreas_efficiency,
+        ROUND(100.0 * SUM((o.intestine IS NOT NULL)::int) / NULLIF(SUM(1)::int,0), 2) AS intestines_efficiency
     FROM dbo.patient_cod pc
     LEFT JOIN dbo.outcomes o  ON o.patientid = pc.patientid
     WHERE cod_filter IS NULL OR pc.cause_of_death_unos = cod_filter
     GROUP BY pc.cause_of_death_unos
-    ORDER BY pc.cause_of_death_unos;
+    ORDER BY pc.cause_of_death_unos; 
 END;
 $$ LANGUAGE plpgsql;
 
@@ -132,7 +115,6 @@ BEGIN
         WHEN 4 THEN col_name := 'circumstances_of_death';
         ELSE RAISE EXCEPTION 'Invalid filter_column value';
     END CASE;
-
     sql := format($f$
         SELECT
             %L AS filter_value,
@@ -146,7 +128,6 @@ BEGIN
         LEFT JOIN dbo.outcomes o ON o.patientid = pc.patientid
         WHERE %I = %L
     $f$, f_value, col_name, f_value);
-
     RETURN QUERY EXECUTE sql;
 END;
 $$ LANGUAGE plpgsql;
